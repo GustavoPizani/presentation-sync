@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { ChevronRight, ChevronLeft, Smartphone } from "lucide-react";
+import { ChevronRight, ChevronLeft, Smartphone, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const TOTAL_SLIDES = 3;
@@ -12,27 +12,38 @@ export default function Controller() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
 
-  // Find session by code
+  // Find session and mark as connected
   useEffect(() => {
     if (!code) {
       setError("Código de sessão não fornecido.");
       return;
     }
 
-    supabase
-      .from("sessions")
-      .select("id, current_slide")
-      .eq("session_code", code.toUpperCase())
-      .single()
-      .then(({ data, error: err }) => {
-        if (err || !data) {
-          setError("Sessão não encontrada. Verifique o código.");
-          return;
-        }
-        setSessionId(data.id);
-        setCurrentSlide(data.current_slide);
-      });
+    (async () => {
+      const { data, error: err } = await supabase
+        .from("sessions")
+        .select("id, current_slide")
+        .eq("session_code", code.toUpperCase())
+        .single();
+
+      if (err || !data) {
+        setError("Sessão não encontrada. Verifique o código.");
+        return;
+      }
+
+      setSessionId(data.id);
+      setCurrentSlide(data.current_slide);
+
+      // Mark as connected
+      await supabase
+        .from("sessions")
+        .update({ status: "connected" })
+        .eq("id", data.id);
+
+      setConnected(true);
+    })();
   }, [code]);
 
   const updateSlide = useCallback(
@@ -73,11 +84,19 @@ export default function Controller() {
   return (
     <div className="flex min-h-svh flex-col items-center justify-between bg-background px-6 py-8">
       {/* Header */}
-      <div className="flex w-full items-center justify-center gap-2 text-muted-foreground">
-        <Smartphone className="h-4 w-4" />
-        <span className="text-xs font-medium uppercase tracking-widest">
-          Controle Remoto
-        </span>
+      <div className="flex w-full flex-col items-center gap-2">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Smartphone className="h-4 w-4" />
+          <span className="text-xs font-medium uppercase tracking-widest">
+            Controle Remoto
+          </span>
+        </div>
+        {connected && (
+          <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-400">
+            <Check className="h-3 w-3" />
+            Conectado
+          </div>
+        )}
       </div>
 
       {/* Slide info */}
