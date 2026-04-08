@@ -19,18 +19,21 @@ export type Database = {
           current_slide: number
           id: string
           session_code: string
+          status: string
           updated_at: string
         }
         Insert: {
           current_slide?: number
           id?: string
           session_code: string
+          status?: string
           updated_at?: string
         }
         Update: {
           current_slide?: number
           id?: string
           session_code?: string
+          status?: string
           updated_at?: string
         }
         Relationships: []

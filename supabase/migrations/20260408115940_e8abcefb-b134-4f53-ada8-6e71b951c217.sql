@@ -1,0 +1,1 @@
+ALTER TABLE public.sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'waiting';
