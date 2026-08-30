@@ -201,11 +201,17 @@ export default function Presenter() {
 
   // Exit the presentation. Keeps the linked session (if any) alive so the
   // phone stays connected — going back to upload lets you swap the file
-  // without re-scanning the QR code.
+  // without re-scanning the QR code. Tells the phone the show has ended so
+  // it can switch to a waiting screen instead of stale/dead controls.
   const exitPresentation = useCallback(() => {
     if (document.fullscreenElement) {
       document.exitFullscreen();
     }
+    metaChannelRef.current?.send({
+      type: "broadcast",
+      event: "presentation-ended",
+      payload: {},
+    });
     setFile(null);
     setCurrentSlide(0);
     setState("upload");
