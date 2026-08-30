@@ -22,6 +22,7 @@ export default function Controller() {
   // document into fullscreen without a real click there, so this is a
   // best-effort request — see the button below.
   const [presenterFullscreen, setPresenterFullscreen] = useState(false);
+  const [comments, setComments] = useState<Record<number, string>>({});
   const metaChannelRef = useRef<RealtimeChannel | null>(null);
 
   const requestFullscreenToggle = () => {
@@ -75,6 +76,10 @@ export default function Controller() {
       .on("broadcast", { event: "meta" }, ({ payload }) => {
         setIsHtml(payload.fileType === "html");
         setTotalSlides(Math.max(1, payload.totalSlides || 1));
+        setComments(payload.comments || {});
+      })
+      .on("broadcast", { event: "comments" }, ({ payload }) => {
+        setComments(payload.comments || {});
       })
       .on("broadcast", { event: "fullscreen-state" }, ({ payload }) => {
         setPresenterFullscreen(!!payload.value);
@@ -163,17 +168,25 @@ export default function Controller() {
         </button>
       </div>
 
-      {/* Slide info */}
-      <div className="text-center">
-        {isHtml ? (
-          <p className="text-lg font-medium text-muted-foreground">
-            Navegação livre
-          </p>
-        ) : (
-          <>
-            <p className="text-6xl font-bold text-foreground">{currentSlide + 1}</p>
-            <p className="mt-1 text-sm text-muted-foreground">de {totalSlides}</p>
-          </>
+      {/* Slide info + comment (scrollable so long comments don't push the buttons) */}
+      <div className="flex w-full flex-1 flex-col items-center gap-4 overflow-y-auto py-2">
+        <div className="text-center">
+          {isHtml ? (
+            <p className="text-lg font-medium text-muted-foreground">
+              Navegação livre
+            </p>
+          ) : (
+            <>
+              <p className="text-6xl font-bold text-foreground">{currentSlide + 1}</p>
+              <p className="mt-1 text-sm text-muted-foreground">de {totalSlides}</p>
+            </>
+          )}
+        </div>
+
+        {comments[currentSlide + 1] && (
+          <div className="w-full whitespace-pre-wrap rounded-2xl border border-border bg-card p-4 text-sm text-foreground">
+            {comments[currentSlide + 1]}
+          </div>
         )}
       </div>
 

@@ -2,11 +2,12 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import QRCode from "react-qr-code";
-import { Play, Smartphone, Upload as UploadIcon, X } from "lucide-react";
+import { MessageSquareText, Play, Smartphone, Upload as UploadIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import FileUploadZone, { type UploadedFile } from "@/components/FileUploadZone";
 import FileViewer from "@/components/FileViewer";
 import { getSlideCount } from "@/lib/slideCount";
+import { commentsToMap, parseComments } from "@/lib/parseComments";
 
 function generateCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -28,14 +29,45 @@ export default function Presenter() {
   const [countingSlides, setCountingSlides] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [fullscreenRequested, setFullscreenRequested] = useState(false);
+  const [comments, setComments] = useState<Record<number, string>>({});
+  const [commentsStatus, setCommentsStatus] = useState<string | null>(null);
+  const commentsInputRef = useRef<HTMLInputElement>(null);
 
   // Refs so the (stable) broadcast channel handlers always read fresh values
   // without needing to resubscribe every time file/totalSlides change.
   const fileRef = useRef<UploadedFile | null>(null);
   const totalSlidesRef = useRef(1);
+  const commentsRef = useRef<Record<number, string>>({});
   const metaChannelRef = useRef<RealtimeChannel | null>(null);
   fileRef.current = file;
   totalSlidesRef.current = totalSlides;
+  commentsRef.current = comments;
+
+  // Parses an uploaded HTML file of per-page comments and pushes it to the
+  // connected controller. Kept only in memory for the life of the session —
+  // there's no backing DB table for this.
+  const uploadComments = useCallback(async (htmlFile: File) => {
+    try {
+      const text = await htmlFile.text();
+      const parsed = parseComments(text);
+      const map = commentsToMap(parsed);
+      setComments(map);
+      commentsRef.current = map;
+      metaChannelRef.current?.send({
+        type: "broadcast",
+        event: "comments",
+        payload: { comments: map },
+      });
+      setCommentsStatus(
+        parsed.length > 0
+          ? `${parsed.length} comentário(s) carregado(s)`
+          : "Nenhum comentário encontrado (use data-page=\"N\")"
+      );
+    } catch (err) {
+      console.error("Error parsing comments file:", err);
+      setCommentsStatus("Erro ao ler o arquivo de comentários");
+    }
+  }, []);
 
   const attemptFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -96,6 +128,9 @@ export default function Presenter() {
   const onFileUploaded = useCallback((f: UploadedFile) => {
     setFile(f);
     setTotalSlides(1);
+    setComments({});
+    commentsRef.current = {};
+    setCommentsStatus(null);
     setCountingSlides(true);
     getSlideCount(f)
       .then(setTotalSlides)
@@ -146,7 +181,11 @@ export default function Presenter() {
       metaChannelRef.current?.send({
         type: "broadcast",
         event: "meta",
-        payload: { fileType: fileRef.current.type, totalSlides: totalSlidesRef.current },
+        payload: {
+          fileType: fileRef.current.type,
+          totalSlides: totalSlidesRef.current,
+          comments: commentsRef.current,
+        },
       });
     }
     setState("presenting");
@@ -177,7 +216,11 @@ export default function Presenter() {
           channel.send({
             type: "broadcast",
             event: "meta",
-            payload: { fileType: fileRef.current.type, totalSlides: totalSlidesRef.current },
+            payload: {
+              fileType: fileRef.current.type,
+              totalSlides: totalSlidesRef.current,
+              comments: commentsRef.current,
+            },
           });
         }
       })
@@ -284,6 +327,17 @@ export default function Presenter() {
     return (
       <>
       {fullscreenBanner}
+      <input
+        ref={commentsInputRef}
+        type="file"
+        accept=".html,.htm"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) uploadComments(f);
+          e.target.value = "";
+        }}
+      />
       <div className="flex min-h-screen flex-col items-center justify-center gap-10 bg-background px-6">
         {/* File info card */}
         <div className="flex items-center gap-4 rounded-2xl border border-border bg-card px-6 py-4">
@@ -301,6 +355,22 @@ export default function Presenter() {
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {linked && (
+          <div className="flex flex-col items-center gap-2">
+            <Button
+              variant="outline"
+              className="gap-2 rounded-xl text-sm"
+              onClick={() => commentsInputRef.current?.click()}
+            >
+              <MessageSquareText className="h-4 w-4" />
+              Adicionar comentários (HTML)
+            </Button>
+            {commentsStatus && (
+              <p className="text-xs text-muted-foreground">{commentsStatus}</p>
+            )}
+          </div>
+        )}
 
         {linked ? (
           <Button
@@ -399,6 +469,17 @@ export default function Presenter() {
   return (
     <div className="h-screen w-screen">
       {fullscreenBanner}
+      <input
+        ref={commentsInputRef}
+        type="file"
+        accept=".html,.htm"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) uploadComments(f);
+          e.target.value = "";
+        }}
+      />
       <FileViewer
         file={file}
         currentSlide={currentSlide}
@@ -412,9 +493,16 @@ export default function Presenter() {
 
       {/* Linked mode: show session info */}
       {linked && (
-        <div className="absolute bottom-6 left-1/2 z-10 -translate-x-1/2 rounded-xl bg-card/80 px-4 py-2 text-sm text-muted-foreground backdrop-blur-sm">
+        <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-xl bg-card/80 px-4 py-2 text-sm text-muted-foreground backdrop-blur-sm">
           {file.type !== "html" && `${currentSlide + 1} / ${totalSlides} · `}Sessão{" "}
           <span className="font-mono text-primary">{sessionCode}</span>
+          <button
+            onClick={() => commentsInputRef.current?.click()}
+            className="ml-1 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Trocar comentários (HTML)"
+          >
+            <MessageSquareText className="h-4 w-4" />
+          </button>
         </div>
       )}
     </div>
