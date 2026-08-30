@@ -1,18 +1,36 @@
-import { useEffect, useState, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { ChevronRight, ChevronLeft, Smartphone, Check } from "lucide-react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import { ChevronRight, ChevronLeft, Smartphone, Check, X, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const TOTAL_SLIDES = 3;
-
 export default function Controller() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const code = searchParams.get("code");
+  const [totalSlides, setTotalSlides] = useState(1);
+  // HTML decks manage their own internal slide navigation (via arrow keys
+  // forwarded from the presenter), so there's no real page count to clamp to.
+  const [isHtml, setIsHtml] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  // Reflects the presenter's browser fullscreen state, not this device's.
+  // Browsers block a remote (websocket) message from forcing another
+  // document into fullscreen without a real click there, so this is a
+  // best-effort request — see the button below.
+  const [presenterFullscreen, setPresenterFullscreen] = useState(false);
+  const metaChannelRef = useRef<RealtimeChannel | null>(null);
+
+  const requestFullscreenToggle = () => {
+    metaChannelRef.current?.send({ type: "broadcast", event: "fullscreen-toggle", payload: {} });
+  };
+
+  const exitController = () => {
+    navigate("/");
+  };
 
   // Find session and mark as connected
   useEffect(() => {
@@ -46,10 +64,38 @@ export default function Controller() {
     })();
   }, [code]);
 
+  // Broadcast channel: ask the presenter what file is currently loaded
+  // (type / slide count) and listen for its fullscreen state, since the
+  // presenter may swap files without a new QR code / session.
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const channel = supabase.channel(`session-meta-${sessionId}`);
+    channel
+      .on("broadcast", { event: "meta" }, ({ payload }) => {
+        setIsHtml(payload.fileType === "html");
+        setTotalSlides(Math.max(1, payload.totalSlides || 1));
+      })
+      .on("broadcast", { event: "fullscreen-state" }, ({ payload }) => {
+        setPresenterFullscreen(!!payload.value);
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          channel.send({ type: "broadcast", event: "request-meta", payload: {} });
+        }
+      });
+
+    metaChannelRef.current = channel;
+    return () => {
+      supabase.removeChannel(channel);
+      metaChannelRef.current = null;
+    };
+  }, [sessionId]);
+
   const updateSlide = useCallback(
     async (newSlide: number) => {
       if (!sessionId) return;
-      if (newSlide < 0 || newSlide >= TOTAL_SLIDES) return;
+      if (!isHtml && (newSlide < 0 || newSlide >= totalSlides)) return;
 
       setCurrentSlide(newSlide);
       await supabase
@@ -57,7 +103,7 @@ export default function Controller() {
         .update({ current_slide: newSlide })
         .eq("id", sessionId);
     },
-    [sessionId]
+    [sessionId, totalSlides, isHtml]
   );
 
   if (error) {
@@ -78,31 +124,57 @@ export default function Controller() {
     );
   }
 
-  const isFirst = currentSlide === 0;
-  const isLast = currentSlide === TOTAL_SLIDES - 1;
+  const isFirst = !isHtml && currentSlide === 0;
+  const isLast = !isHtml && currentSlide === totalSlides - 1;
 
   return (
     <div className="flex min-h-svh flex-col items-center justify-between bg-background px-6 py-8">
       {/* Header */}
-      <div className="flex w-full flex-col items-center gap-2">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <Smartphone className="h-4 w-4" />
-          <span className="text-xs font-medium uppercase tracking-widest">
-            Controle Remoto
-          </span>
-        </div>
-        {connected && (
-          <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-400">
-            <Check className="h-3 w-3" />
-            Conectado
+      <div className="flex w-full items-start justify-between">
+        <button
+          onClick={exitController}
+          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="Sair"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Smartphone className="h-4 w-4" />
+            <span className="text-xs font-medium uppercase tracking-widest">
+              Controle Remoto
+            </span>
           </div>
-        )}
+          {connected && (
+            <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs text-emerald-400">
+              <Check className="h-3 w-3" />
+              Conectado
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={requestFullscreenToggle}
+          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title={presenterFullscreen ? "Sair da tela cheia (notebook)" : "Tela cheia (notebook)"}
+        >
+          {presenterFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
+        </button>
       </div>
 
       {/* Slide info */}
       <div className="text-center">
-        <p className="text-6xl font-bold text-foreground">{currentSlide + 1}</p>
-        <p className="mt-1 text-sm text-muted-foreground">de {TOTAL_SLIDES}</p>
+        {isHtml ? (
+          <p className="text-lg font-medium text-muted-foreground">
+            Navegação livre
+          </p>
+        ) : (
+          <>
+            <p className="text-6xl font-bold text-foreground">{currentSlide + 1}</p>
+            <p className="mt-1 text-sm text-muted-foreground">de {totalSlides}</p>
+          </>
+        )}
       </div>
 
       {/* Controls */}
