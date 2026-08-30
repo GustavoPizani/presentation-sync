@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { ChevronRight, ChevronLeft, Smartphone, Check, X, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ExitConfirmDialog from "@/components/ExitConfirmDialog";
 
 export default function Controller() {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ export default function Controller() {
   // best-effort request — see the button below.
   const [presenterFullscreen, setPresenterFullscreen] = useState(false);
   const [comments, setComments] = useState<Record<number, string>>({});
+  const [confirmExitOpen, setConfirmExitOpen] = useState(false);
   const metaChannelRef = useRef<RealtimeChannel | null>(null);
 
   const requestFullscreenToggle = () => {
@@ -137,12 +139,18 @@ export default function Controller() {
       {/* Header */}
       <div className="flex w-full items-start justify-between">
         <button
-          onClick={exitController}
+          onClick={() => setConfirmExitOpen(true)}
           className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title="Sair"
         >
           <X className="h-5 w-5" />
         </button>
+        <ExitConfirmDialog
+          open={confirmExitOpen}
+          onOpenChange={setConfirmExitOpen}
+          onConfirm={exitController}
+          description="Você sai do controle remoto. O notebook continua apresentando normalmente."
+        />
 
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-2 text-muted-foreground">
@@ -171,15 +179,11 @@ export default function Controller() {
       {/* Slide info + comment (scrollable so long comments don't push the buttons) */}
       <div className="flex w-full flex-1 flex-col items-center gap-4 overflow-y-auto py-2">
         <div className="text-center">
+          <p className="text-6xl font-bold text-foreground">{currentSlide + 1}</p>
           {isHtml ? (
-            <p className="text-lg font-medium text-muted-foreground">
-              Navegação livre
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">Navegação livre</p>
           ) : (
-            <>
-              <p className="text-6xl font-bold text-foreground">{currentSlide + 1}</p>
-              <p className="mt-1 text-sm text-muted-foreground">de {totalSlides}</p>
-            </>
+            <p className="mt-1 text-sm text-muted-foreground">de {totalSlides}</p>
           )}
         </div>
 

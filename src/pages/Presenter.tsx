@@ -61,13 +61,21 @@ export default function Presenter() {
       setCommentsStatus(
         parsed.length > 0
           ? `${parsed.length} comentário(s) carregado(s)`
-          : "Nenhum comentário encontrado (use data-page=\"N\")"
+          : "Nenhum comentário encontrado (use data-page=\"N\" ou id=\"s1\", \"s2\"...)"
       );
     } catch (err) {
       console.error("Error parsing comments file:", err);
       setCommentsStatus("Erro ao ler o arquivo de comentários");
     }
   }, []);
+
+  // Auto-dismiss the comments status toast so it doesn't linger over the
+  // slide once the presenter has seen it.
+  useEffect(() => {
+    if (!commentsStatus) return;
+    const t = setTimeout(() => setCommentsStatus(null), 4000);
+    return () => clearTimeout(t);
+  }, [commentsStatus]);
 
   const attemptFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -236,7 +244,11 @@ export default function Presenter() {
     };
   }, [linked, sessionId, handleRemoteFullscreenToggle]);
 
-  // Listen for status change to 'connected' while on QR screen
+  // Listen for status change to 'connected' while on QR screen. Goes to the
+  // "choose" screen (not straight to presenting) so there's a real click
+  // here to hang fullscreen off of — browsers refuse requestFullscreen()
+  // without one — and so the comments-upload option is reachable before
+  // the presentation starts.
   useEffect(() => {
     if (state !== "qr" || !sessionId) return;
 
@@ -252,8 +264,7 @@ export default function Presenter() {
         },
         (payload) => {
           if (payload.new.status === "connected") {
-            setCurrentSlide(0);
-            setState("presenting");
+            setState("choose");
           }
         }
       )
@@ -300,6 +311,14 @@ export default function Presenter() {
     >
       Celular pediu tela cheia · Toque aqui para confirmar
     </button>
+  );
+
+  // Transient feedback for the comments upload, shown over the slide too
+  // (fullscreen has no persistent status area to put this in otherwise).
+  const commentsToast = commentsStatus && (
+    <div className="fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-xl border border-border bg-card px-5 py-3 text-sm font-medium text-foreground shadow-2xl">
+      {commentsStatus}
+    </div>
   );
 
   // ---------- UPLOAD SCREEN ----------
@@ -469,6 +488,7 @@ export default function Presenter() {
   return (
     <div className="h-screen w-screen">
       {fullscreenBanner}
+      {commentsToast}
       <input
         ref={commentsInputRef}
         type="file"
@@ -489,22 +509,18 @@ export default function Presenter() {
         onExit={exitPresentation}
         fullscreen={fullscreen}
         onToggleFullscreen={toggleFullscreen}
+        extraControl={
+          linked ? (
+            <button
+              onClick={() => commentsInputRef.current?.click()}
+              className="rounded-lg bg-card/80 p-2 text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground"
+              title="Trocar comentários (HTML)"
+            >
+              <MessageSquareText className="h-5 w-5" />
+            </button>
+          ) : undefined
+        }
       />
-
-      {/* Linked mode: show session info */}
-      {linked && (
-        <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-xl bg-card/80 px-4 py-2 text-sm text-muted-foreground backdrop-blur-sm">
-          {file.type !== "html" && `${currentSlide + 1} / ${totalSlides} · `}Sessão{" "}
-          <span className="font-mono text-primary">{sessionCode}</span>
-          <button
-            onClick={() => commentsInputRef.current?.click()}
-            className="ml-1 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Trocar comentários (HTML)"
-          >
-            <MessageSquareText className="h-4 w-4" />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

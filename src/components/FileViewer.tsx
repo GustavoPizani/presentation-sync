@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ExitConfirmDialog from "./ExitConfirmDialog";
 import type { UploadedFile } from "./FileUploadZone";
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
@@ -41,6 +42,7 @@ interface FileViewerProps {
   onExit?: () => void;
   fullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  extraControl?: React.ReactNode;
 }
 
 export default function FileViewer({
@@ -52,7 +54,9 @@ export default function FileViewer({
   onExit,
   fullscreen = false,
   onToggleFullscreen,
+  extraControl,
 }: FileViewerProps) {
+  const [confirmExitOpen, setConfirmExitOpen] = useState(false);
   // HTML files often bundle their own internal slide navigation (e.g. a
   // React deck listening to arrow keys). We can't know how many "slides"
   // are inside without executing that JS, so treat html as unbounded and
@@ -84,15 +88,7 @@ export default function FileViewer({
 
       {/* Fullscreen toggle + exit (always available, even in remote-controlled mode) */}
       <div className="absolute right-6 top-6 z-10 flex items-center gap-2">
-        {onExit && (
-          <button
-            onClick={onExit}
-            className="rounded-lg bg-card/80 p-2 text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground"
-            title="Sair da apresentação"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        )}
+        {extraControl}
         {onToggleFullscreen && (
           <button
             onClick={onToggleFullscreen}
@@ -102,15 +98,35 @@ export default function FileViewer({
             {fullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
           </button>
         )}
+        {onExit && (
+          <button
+            onClick={() => setConfirmExitOpen(true)}
+            className="rounded-lg bg-card/80 p-2 text-muted-foreground backdrop-blur-sm transition-colors hover:text-foreground"
+            title="Sair da apresentação"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
+
+      {onExit && (
+        <ExitConfirmDialog
+          open={confirmExitOpen}
+          onOpenChange={setConfirmExitOpen}
+          onConfirm={() => {
+            setConfirmExitOpen(false);
+            onExit();
+          }}
+        />
+      )}
 
       {/* Slide content */}
       <div
         className={`flex flex-1 items-center justify-center overflow-hidden ${
-          fullscreen ? "h-full w-full p-2" : "w-full max-w-5xl px-8 py-16"
+          fullscreen ? "h-full w-full" : "w-full max-w-5xl px-8 py-16"
         }`}
       >
-        {file.type === "html" && <HtmlSlide file={file} currentSlide={currentSlide} />}
+        {file.type === "html" && <HtmlSlide file={file} currentSlide={currentSlide} rounded={!fullscreen} />}
         {file.type === "pdf" && <PdfSlide file={file} pageIndex={currentSlide} rounded={!fullscreen} />}
         {file.type === "pptx" && <PptxSlide file={file} slideIndex={currentSlide} rounded={!fullscreen} />}
       </div>
@@ -150,7 +166,15 @@ export default function FileViewer({
   );
 }
 
-function HtmlSlide({ file, currentSlide }: { file: UploadedFile; currentSlide: number }) {
+function HtmlSlide({
+  file,
+  currentSlide,
+  rounded,
+}: {
+  file: UploadedFile;
+  currentSlide: number;
+  rounded: boolean;
+}) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const prevSlideRef = useRef(currentSlide);
   const readyRef = useRef(false);
@@ -185,7 +209,7 @@ function HtmlSlide({ file, currentSlide }: { file: UploadedFile; currentSlide: n
       src={file.url}
       title={file.file.name}
       sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-      className="h-full w-full rounded-2xl border border-border bg-white"
+      className={`h-full w-full bg-white ${rounded ? "rounded-2xl border border-border" : ""}`}
       onLoad={() => {
         readyRef.current = true;
         prevSlideRef.current = currentSlide;
